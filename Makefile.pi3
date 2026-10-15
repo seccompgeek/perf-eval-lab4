@@ -1,0 +1,5 @@
+# Compatibility entry point for a Pi 3B+ running 64-bit Raspberry Pi OS.
+# All build rules live in Makefile; native Pi builds also work with plain make.
+ARCH_FLAGS ?= -mcpu=native
+AARCH64_ARCH_FLAGS ?= -mcpu=cortex-a53
+include Makefile

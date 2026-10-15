@@ -3,15 +3,16 @@
 #include <inttypes.h>
 #include <math.h>
 #include <pthread.h>
+#include "macos_barrier.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#if defined(__aarch64__)
+#if !defined(LAB4_DISABLE_INTRINSICS) && defined(__aarch64__)
 #include <arm_neon.h>
-#elif defined(__AVX2__) || defined(__SSE2__)
+#elif !defined(LAB4_DISABLE_INTRINSICS) && (defined(__AVX2__) || defined(__SSE2__))
 #include <immintrin.h>
 #endif
 
@@ -28,7 +29,12 @@ static volatile double observable_sink;
 
 static double now_seconds(void) {
     struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
+#ifdef CLOCK_MONOTONIC_RAW
+    const clockid_t clock_id = CLOCK_MONOTONIC_RAW;
+#else
+    const clockid_t clock_id = CLOCK_MONOTONIC;
+#endif
+    if (clock_gettime(clock_id, &ts) != 0) {
         perror("clock_gettime");
         exit(EXIT_FAILURE);
     }
@@ -415,18 +421,21 @@ mm_blocked_intrinsics(const double *restrict a,
                         double aik = a[i * n + k];
                         size_t j = jj;
 
-#if defined(__AVX2__)
+#if !defined(LAB4_DISABLE_INTRINSICS) && defined(__AVX2__)
                         /* TODO: process four doubles per iteration with
                            _mm256_set1_pd, loadu, mul, add, and storeu. */
-#elif defined(__aarch64__)
+#elif !defined(LAB4_DISABLE_INTRINSICS) && defined(__aarch64__)
                         /* TODO: process two doubles per iteration with
                            vdupq_n_f64, vld1q_f64, vmulq_f64, vaddq_f64,
                            and vst1q_f64. */
-#elif defined(__SSE2__)
+#elif !defined(LAB4_DISABLE_INTRINSICS) && defined(__SSE2__)
                         /* TODO: process two doubles per iteration with
                            _mm_set1_pd, loadu, mul, add, and storeu. */
 #endif
                         /* Keep this loop as the scalar tail and fallback. */
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
                         for (; j < j_end; ++j)
                             c[i * n + j] += aik * b[k * n + j];
                     }

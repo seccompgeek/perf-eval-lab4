@@ -30,9 +30,9 @@ After this lab, we should be able to:
 
 ## Requirements
 
-- 64-bit Linux on either x86-64 (Intel or AMD) or AArch64
-- GCC or a compatible C11 compiler
-- `make`, pthreads, and `objdump`
+- 64-bit Linux on x86-64 or AArch64, or macOS on Intel or Apple Silicon
+- GCC or Clang (including Apple Clang), with C11 support
+- GNU `make` and pthreads; `objdump` is optional for binary disassembly
 - Python 3 (standard library only) for the guided assembly report
 - Linux `perf` for the counter-analysis section; if hardware-counter access is
   restricted, use instructor-provided output and report that limitation
@@ -42,6 +42,9 @@ After this lab, we should be able to:
 Most of the main benchmark uses portable C and compiler auto-vectorization. The
 guarded AVX2/SSE2 and AArch64 NEON paths let the same source also demonstrate
 explicit SIMD on every supported machine.
+
+Build from the repository root. The former `Lab4_Vectorization_Student/` copy
+has been consolidated here so there is one source and build configuration.
 
 There are two separate coding assignments:
 
@@ -55,7 +58,7 @@ stores, architecture guards, and scalar tail. Stage 6 applies exactly those
 mechanics to the already-blocked matrix kernel, so the new variable is manual
 SIMD—not a simultaneous redesign of the loop order and tiling.
 
-Record the machine before measuring:
+On Linux, record the machine before measuring (see macOS alternatives below):
 
 ```bash
 uname -m
@@ -68,6 +71,46 @@ Logical CPUs that share the same `CORE` value are SMT siblings. We determine
 these IDs before using `taskset`; adjacent CPU numbers are not universally
 siblings.
 
+## macOS setup
+
+Apple's Command Line Tools provide Clang and make (`xcode-select --install`
+if they are missing). Run `make` and `make check` as usual. The Makefile detects
+Clang and uses its vectorization flags; Apple Silicon uses `-mcpu=native`.
+`make report`, `make vec-check`, and `make assembly` also support Clang.
+The GCC flag tables below describe Linux builds; Clang uses `-fvectorize
+-fslp-vectorize` and `-fno-vectorize -fno-slp-vectorize` for the same controls.
+A small macOS barrier implementation supports the threaded benchmark.
+
+Linux topology and affinity commands (`lscpu`, `/proc/cpuinfo`, `taskset`) and
+`perf stat` do not run on macOS. Record hardware with `system_profiler
+SPHardwareDataType` and CPU counts with `sysctl hw.physicalcpu hw.logicalcpu`.
+Use the benchmark's `elapsed_s` for timings or Instruments for profiling.
+Apple Silicon does not provide SMT, so the SMT sibling experiment requires a
+suitable Linux machine. `make cross-aarch64` still requires a separate AArch64
+Linux GCC cross-compiler.
+
+## Raspberry Pi 3B+ build
+
+Use **64-bit Raspberry Pi OS**; `uname -m` should print `aarch64`.
+Plain `make` selects `-mcpu=native` on AArch64, including double-precision
+NEON intrinsics. `Makefile.pi3` is a compatibility entry point that shares all
+rules with the main Makefile and selects Cortex-A53 for cross-builds. A 32-bit OS
+(`armv7l`) cannot use this lab's AArch64 double-precision NEON paths.
+
+Copy the project sources, including `macos_barrier.h` and
+`make_assembly_guide.py`, to the Pi, then run:
+
+```bash
+make -f Makefile.pi3 clean
+make -f Makefile.pi3
+make -f Makefile.pi3 check
+make -f Makefile.pi3 report vec-check assembly
+```
+
+Cleaning first removes any binaries copied from your Mac. All lab targets
+remain available. The Pi 3B+ has four cores without SMT; its threading
+experiment compares cores rather than SMT siblings.
+
 ## Build three controlled variants
 
 ```bash
@@ -75,7 +118,8 @@ make
 make check
 ```
 
-The Makefile builds the main source three ways and also builds `simd_demo`:
+The Makefile builds the main source three ways and builds both `simd_demo`
+and `simd_demo_scalar`:
 
 | Binary | Relevant flags | Purpose |
 |---|---|---|
@@ -86,6 +130,66 @@ The Makefile builds the main source three ways and also builds `simd_demo`:
 Keeping `-O3` in both the scalar and auto-vectorized builds is important. A
 comparison between `-O0` and `-O3` would mix vectorization with many unrelated
 compiler optimizations.
+
+### Select vectorization at compile time
+
+The same ordinary C kernels compile with or without auto-vectorization. No
+source edits are needed; select the binary for the experiment:
+
+```bash
+make CC=gcc                  # or CC=clang; plain make uses the system C compiler
+./lab4_scalar axpy 100003 20  # both compiler vectorizers disabled
+./lab4_auto axpy 100003 20    # both compiler vectorizers enabled
+./simd_demo_scalar verify    # auto-vectorization and explicit intrinsics disabled
+./simd_demo verify           # automatic, opaque, and explicit SIMD paths
+```
+
+Auto-vectorization flags do **not** disable explicit intrinsics. The scalar
+targets additionally define `LAB4_DISABLE_INTRINSICS`, selecting the scalar
+fallback even after the matrix intrinsics exercise is completed. To disable
+explicit intrinsics in the other targets while keeping auto-vectorization:
+
+```bash
+make INTRINSICS=0 check
+make INTRINSICS=1 check      # restore the default
+```
+
+`INTRINSICS=0` alone does not disable compiler-generated SIMD. For a direct
+compiler invocation that disables both mechanisms, use:
+
+```bash
+# GCC (native x86-64 example)
+gcc -std=c11 -O3 -march=native -pthread \
+  -fno-tree-loop-vectorize -fno-tree-slp-vectorize \
+  -DLAB4_DISABLE_INTRINSICS lab4_bench.c -lm -o lab4_scalar
+
+# Clang / Apple Clang: substitute these two vectorizer flags:
+# -fno-vectorize -fno-slp-vectorize
+# On AArch64 / Apple Silicon: substitute -mcpu=native for -march=native.
+```
+
+Scalar floating-point instructions can still use XMM or ARM SIMD/FP registers;
+“scalar” means one element per arithmetic operation, not a ban on those registers
+or on optimized library routines such as `memcpy`.
+
+`CPPFLAGS`, `CFLAGS`, `LDFLAGS`, and `LDLIBS` are honored. The selected target's
+vectorizer flags follow `CFLAGS` so the scalar/auto distinction remains explicit.
+For custom experiments, override `VECTOR_FLAGS`, `SCALAR_FLAGS`, `OPT_FLAGS`, or
+`ARCH_FLAGS` directly. Changing compilers, flags, or `INTRINSICS` automatically
+rebuilds binaries; an unchanged configuration does not. Clean first when copying
+a build directory to a different machine. `-march=native` / `-mcpu=native` binaries
+are intended for the CPU on which they were built.
+
+```bash
+make CC=gcc ARCH_FLAGS=-march=x86-64 check  # baseline x86-64/SSE2
+make CC=clang CFLAGS=-Werror check
+make codegen-check                       # assert scalar vs packed arithmetic
+```
+
+`codegen-check` tests the default vectorizer settings on x86-64 and AArch64 and
+also works with `INTRINSICS=0`. It checks emitted arithmetic, rather than merely
+checking that the compiler accepted the flags. The readable `vec-check` and
+assembly guide remain available for students to inspect individual loops.
 
 ### Compiler options used in this lab
 
@@ -142,7 +246,37 @@ A72, and A76 cores in the Pi 3B+, 4, and 5. Cross-compilation confirms that the
 source and flags are accepted; run `make check` on the actual board to test its
 OS, libraries, compiler, and hardware.
 
-Generate GCC's vectorization decisions and assembly:
+The cross compiler is independent of `CC`; native Apple Clang does not cause
+GCC cross-builds to receive Clang flags. Override `AARCH64_CC`,
+`AARCH64_ARCH_FLAGS`, `AARCH64_CPPFLAGS`, `AARCH64_CFLAGS`,
+`AARCH64_LDFLAGS`, and `AARCH64_LDLIBS` for another installed Linux toolchain.
+The four cross-specific user flag variables inherit their native counterparts
+unless overridden. Use target-compatible flags; never use `native` for a
+cross-compilation architecture setting.
+
+```bash
+make CC=clang cross-aarch64
+make -f Makefile.pi3 cross-aarch64  # explicit Cortex-A53 target
+
+# Clang can also cross-compile when a Linux AArch64 GCC toolchain is installed:
+make AARCH64_CC='clang --target=aarch64-linux-gnu --gcc-toolchain=/usr' cross-aarch64
+
+# Optional correctness smoke test on Linux with qemu-user installed:
+qemu-aarch64 -cpu cortex-a53 -L /usr/aarch64-linux-gnu ./lab4_auto.aarch64 verify
+```
+
+Cross-built executables have a `.aarch64` suffix, including
+`simd_demo_scalar.aarch64`. Copy them to the Pi and run each with `verify`.
+These are **Linux** executables, not macOS binaries. Emulation is useful for
+correctness checks; collect performance measurements on real hardware.
+
+The CI workflow builds and runs checks on Linux x86-64 and AArch64 with GCC and
+Clang, and on Intel and Apple Silicon macOS with Apple Clang. It also checks
+Linux AArch64 cross-compilation, runs the cross-built programs under QEMU, and
+checks scalar versus vectorized assembly. The native ARM CI runner is not a
+Raspberry Pi, so board-specific measurements still belong on the Pi.
+
+Generate the compiler's vectorization decisions and assembly:
 
 ```bash
 make report

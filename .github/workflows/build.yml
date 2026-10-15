@@ -1,0 +1,69 @@
+name: Build and verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            cc: gcc
+          - os: ubuntu-24.04
+            cc: clang
+          - os: ubuntu-24.04-arm
+            cc: gcc
+          - os: ubuntu-24.04-arm
+            cc: clang
+          - os: macos-15-intel
+            cc: clang
+          - os: macos-15
+            cc: clang
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run correctness checks
+        run: make -j2 CC=${{ matrix.cc }} CFLAGS=-Werror check
+      - name: Check diagnostics and generated SIMD/scalar arithmetic
+        run: |
+          make CC=${{ matrix.cc }} CFLAGS=-Werror report vec-check
+          make CC=${{ matrix.cc }} CFLAGS=-Werror codegen-check
+      - name: Disable explicit intrinsics and rebuild without cleaning
+        run: |
+          make -j2 CC=${{ matrix.cc }} CFLAGS=-Werror INTRINSICS=0 check
+          ./simd_demo intrinsics 1003 2 | grep 'isa=scalar_fallback'
+          make CC=${{ matrix.cc }} CFLAGS=-Werror INTRINSICS=0 codegen-check
+
+  cross-aarch64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux AArch64 toolchain and emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user
+      - name: Cross-compile with a different native compiler selected
+        run: make -j2 CC=clang AARCH64_CFLAGS=-Werror cross-aarch64
+      - name: Verify AArch64 binaries on an emulated Cortex-A53
+        run: |
+          for binary in lab4_scalar lab4_auto lab4_fast simd_demo simd_demo_scalar; do
+            qemu-aarch64 -cpu cortex-a53 -L /usr/aarch64-linux-gnu "./${binary}.aarch64" verify
+          done
+          qemu-aarch64 -cpu cortex-a53 -L /usr/aarch64-linux-gnu ./lab4_auto.aarch64 poly 2 100003 2
+      - name: Check AArch64 code generation
+        run: make CC=aarch64-linux-gnu-gcc ARCH_FLAGS=-march=armv8-a+simd CFLAGS=-Werror codegen-check
+      - name: Cross-compile Pi 3 compatibility entry point
+        run: make -j2 -f Makefile.pi3 AARCH64_CFLAGS=-Werror cross-aarch64
+      - name: Cross-compile with Clang and verify
+        run: |
+          make -j2 AARCH64_CC='clang --target=aarch64-linux-gnu --gcc-toolchain=/usr' AARCH64_CFLAGS=-Werror cross-aarch64
+          for binary in lab4_scalar lab4_auto lab4_fast simd_demo simd_demo_scalar; do
+            qemu-aarch64 -cpu cortex-a53 -L /usr/aarch64-linux-gnu "./${binary}.aarch64" verify
+          done

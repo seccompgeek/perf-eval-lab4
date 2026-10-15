@@ -1,0 +1,15 @@
+/lab4_scalar
+/lab4_auto
+/lab4_fast
+/simd_demo
+/simd_demo_scalar
+/*.aarch64
+/*.o
+/*.s
+/.build-*
+/*vectorization*.txt
+/assembly-guide.txt
+__pycache__/
+.DS_Store
+Thumbs.db
+Thumbs.db:encryptable

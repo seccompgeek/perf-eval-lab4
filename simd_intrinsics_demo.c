@@ -9,9 +9,9 @@
 #include <string.h>
 #include <time.h>
 
-#if defined(__aarch64__)
+#if !defined(LAB4_DISABLE_INTRINSICS) && defined(__aarch64__)
 #include <arm_neon.h>
-#elif defined(__AVX2__) || defined(__SSE2__)
+#elif !defined(LAB4_DISABLE_INTRINSICS) && (defined(__AVX2__) || defined(__SSE2__))
 #include <immintrin.h>
 #endif
 
@@ -114,19 +114,19 @@ static NOINLINE void kernel_intrinsics(double *restrict a,
                                        const double *restrict b,
                                        size_t n) {
     size_t i = 0;
-#if defined(__AVX2__)
+#if !defined(LAB4_DISABLE_INTRINSICS) && defined(__AVX2__)
     for (; i + 4 <= n; i += 4) {
         __m256d va = _mm256_loadu_pd(a + i);
         __m256d vb = _mm256_loadu_pd(b + i);
         _mm256_storeu_pd(a + i, _mm256_add_pd(va, vb));
     }
-#elif defined(__aarch64__)
+#elif !defined(LAB4_DISABLE_INTRINSICS) && defined(__aarch64__)
     for (; i + 2 <= n; i += 2) {
         float64x2_t va = vld1q_f64(a + i);
         float64x2_t vb = vld1q_f64(b + i);
         vst1q_f64(a + i, vaddq_f64(va, vb));
     }
-#elif defined(__SSE2__)
+#elif !defined(LAB4_DISABLE_INTRINSICS) && defined(__SSE2__)
     for (; i + 2 <= n; i += 2) {
         __m128d va = _mm_loadu_pd(a + i);
         __m128d vb = _mm_loadu_pd(b + i);
@@ -137,11 +137,11 @@ static NOINLINE void kernel_intrinsics(double *restrict a,
 }
 
 static const char *intrinsics_isa(void) {
-#if defined(__AVX2__)
+#if !defined(LAB4_DISABLE_INTRINSICS) && defined(__AVX2__)
     return "AVX2";
-#elif defined(__aarch64__)
+#elif !defined(LAB4_DISABLE_INTRINSICS) && defined(__aarch64__)
     return "AArch64_NEON";
-#elif defined(__SSE2__)
+#elif !defined(LAB4_DISABLE_INTRINSICS) && defined(__SSE2__)
     return "SSE2";
 #else
     return "scalar_fallback";

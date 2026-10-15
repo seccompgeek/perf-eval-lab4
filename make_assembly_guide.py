@@ -86,8 +86,10 @@ PACKED_X86 = re.compile(
     re.IGNORECASE,
 )
 PACKED_ARM = re.compile(
-    r"(?:\bv\d+\.(?:2d|4s|4h|8h|16b)\b|\b(?:ld1|st1)\b|"
-    r"\b(?:ldr|str)\s+q\d+\b|\bf(?:add|sub|mul|mla|mls)\s+v\d+\.)",
+    r"(?:\bv\d+\.(?:2d|4s|4h|8h|16b)\b|\bz\d+\.[ds]\b|\b(?:ld1|st1)\b|"
+    r"\b(?:ldr|str|ldp|stp)\s+q\d+\b|"
+    r"\bf(?:add|sub|mul|mla|mls)\.(?:2d|4s|4h|8h)\b|"
+    r"\bf(?:add|sub|mul|mla|mls)\s+v\d+\.)",
     re.IGNORECASE,
 )
 
@@ -151,11 +153,22 @@ def extract_source(path, function):
 
 def assembly_symbols(lines, function):
     symbols = []
-    pattern = re.compile(rf"^({re.escape(function)}(?:\.[A-Za-z0-9_.]+)?):$")
+    pattern = re.compile(
+        rf"^(_?{re.escape(function)}(?:\.[A-Za-z0-9_.]+)?):"
+        r"(?:\s*(?:[#;]|//).*)?$"
+    )
     for value in lines:
         found = pattern.match(value.strip())
         if found and found.group(1) not in symbols:
             symbols.append(found.group(1))
+    if not symbols:
+        # GCC can merge identical scalar fallback functions using an alias.
+        alias = re.compile(rf"^\s*\.set\s+_?{re.escape(function)}\s*,\s*([\w.$]+)")
+        for value in lines:
+            found = alias.match(value)
+            if found:
+                symbols.append(found.group(1))
+                break
     symbols.sort(key=lambda value: (value != function, "constprop" not in value,
                                     value))
     return symbols
@@ -190,11 +203,12 @@ def extract_assembly(path, function):
     # .constprop clone when all call-site arguments are compile-time constants.
     symbol = symbols[0]
     start = next(i for i, value in enumerate(lines)
-                 if value.strip() == f"{symbol}:")
+                 if value.strip().split(":", 1)[0] == symbol)
     end_pattern = re.compile(rf"^\s*\.size\s+{re.escape(symbol)}\s*,")
     end = len(lines) - 1
     for index in range(start + 1, len(lines)):
-        if end_pattern.search(lines[index]):
+        if (end_pattern.search(lines[index]) or
+                lines[index].strip().startswith(".cfi_endproc")):
             end = index
             break
     cleaned = clean_assembly(lines[start:end + 1])
