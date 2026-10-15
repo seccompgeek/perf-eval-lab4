@@ -1,0 +1,60 @@
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -fno-tree-loop-vectorize -fno-tree-slp-vectorize -DLAB4_DISABLE_INTRINSICS lab4_bench.c  -o lab4_scalar -lm
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -ftree-loop-vectorize -ftree-slp-vectorize  lab4_bench.c  -o lab4_auto -lm
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -ftree-loop-vectorize -ftree-slp-vectorize  -ffast-math lab4_bench.c  -o lab4_fast -lm
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -ftree-loop-vectorize -ftree-slp-vectorize  simd_intrinsics_demo.c  -o simd_demo -lm
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -fno-tree-loop-vectorize -fno-tree-slp-vectorize -DLAB4_DISABLE_INTRINSICS simd_intrinsics_demo.c  -o simd_demo_scalar -lm
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -fno-tree-loop-vectorize -fno-tree-slp-vectorize -DLAB4_DISABLE_INTRINSICS -S lab4_bench.c -o lab4_scalar.s
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -ftree-loop-vectorize -ftree-slp-vectorize  -S lab4_bench.c -o lab4_auto.s
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -ftree-loop-vectorize -ftree-slp-vectorize  -ffast-math -S lab4_bench.c -o lab4_fast.s
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -ftree-loop-vectorize -ftree-slp-vectorize  -S simd_intrinsics_demo.c -o simd_demo.s
+cc  -std=c11 -Wall -Wextra -Wpedantic -pthread -O3 -mcpu=native  -fno-tree-loop-vectorize -fno-tree-slp-vectorize -DLAB4_DISABLE_INTRINSICS -S simd_intrinsics_demo.c -o simd_demo_scalar.s
+./lab4_scalar verify
+verify variant=ikj max_abs_error=0.000e+00 PASS
+verify variant=blocked max_abs_error=0.000e+00 PASS
+verify variant=intrinsics max_abs_error=0.000e+00 PASS
+./lab4_auto verify
+verify variant=ikj max_abs_error=0.000e+00 PASS
+verify variant=blocked max_abs_error=0.000e+00 PASS
+verify variant=intrinsics max_abs_error=0.000e+00 PASS
+./lab4_fast verify
+verify variant=ikj max_abs_error=0.000e+00 PASS
+verify variant=blocked max_abs_error=0.000e+00 PASS
+verify variant=intrinsics max_abs_error=0.000e+00 PASS
+./simd_demo verify
+verify variant=opaque isa=AArch64_NEON max_abs_error=0.000e+00 PASS
+verify variant=intrinsics isa=AArch64_NEON max_abs_error=0.000e+00 PASS
+./simd_demo_scalar verify
+verify variant=opaque isa=scalar_fallback max_abs_error=0.000e+00 PASS
+verify variant=intrinsics isa=scalar_fallback max_abs_error=0.000e+00 PASS
+./lab4_auto axpy 100003 2
+mode=axpy elements=100003 repeats=2 elapsed_s=0.003075 ns_per_element=15.373 checksum=7806.52113
+./lab4_auto dependency 100003 2
+mode=dependency elements=100003 repeats=2 elapsed_s=0.001795 ns_per_element=8.977 checksum=5203.15979
+./lab4_auto poly 2 100003 2
+mode=poly threads=2 elements=100003 repeats=2 elapsed_s=0.003240 ns_per_element=16.198 checksum=12796.9704
+./lab4_auto tradeoff fused 100003 2
+mode=tradeoff variant=fused elements=100003 working_set_MiB=2.29 repeats=2 elapsed_s=0.003780 ns_per_element=18.897 checksum=18208.647
+./lab4_auto tradeoff split 100003 2
+mode=tradeoff variant=split elements=100003 working_set_MiB=2.29 repeats=2 elapsed_s=0.004255 ns_per_element=21.273 checksum=18208.647
+./lab4_auto matrix row 128 2
+mode=matrix order=row N=128 matrix_MiB=0.12 repeats=2 elapsed_s=0.000164 ns_per_element=5.008 checksum=2556.00133
+./lab4_auto matrix col 128 2
+mode=matrix order=col N=128 matrix_MiB=0.12 repeats=2 elapsed_s=0.000630 ns_per_element=19.228 checksum=2556.00133
+./simd_demo auto 100003 2
+mode=auto isa=AArch64_NEON elements=100003 repeats=2 elapsed_s=0.003131 ns_per_element=15.653 checksum=3130.07958984
+./simd_demo opaque 100003 2
+mode=opaque isa=AArch64_NEON elements=100003 repeats=2 elapsed_s=0.003041 ns_per_element=15.206 checksum=3130.07958984
+./simd_demo intrinsics 100003 2
+mode=intrinsics isa=AArch64_NEON elements=100003 repeats=2 elapsed_s=0.003201 ns_per_element=16.005 checksum=3130.07958984
+LAB4_CC="cc" python3 make_assembly_guide.py
+Wrote assembly-guide.txt
+Open assembly-guide.txt; it places each target's C source directly above its assembly.
+python3 tests/check_codegen.py --intrinsics=1
+PASS lab4_scalar.s: kernel_axpy: packed arithmetic=False
+PASS lab4_auto.s: kernel_axpy: packed arithmetic=True
+PASS lab4_auto.s: kernel_dependency: packed arithmetic=False
+PASS simd_demo.s: kernel_auto: packed arithmetic=True
+PASS simd_demo.s: kernel_opaque: packed arithmetic=False
+PASS simd_demo.s: kernel_intrinsics: packed arithmetic=True
+PASS simd_demo_scalar.s: kernel_auto: packed arithmetic=False
+PASS simd_demo_scalar.s: kernel_intrinsics: packed arithmetic=False
